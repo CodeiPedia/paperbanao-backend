@@ -103,7 +103,20 @@ def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=N
     """
 
     footer_html = f"""
-    <div class="footer-content">
+    <div class="footer-content print-only-footer">
+        {logo_footer}<strong>{i_name}</strong> | 📍 {i_address} | 📞 {i_contact} | 👨‍🏫 <strong>{t_name}</strong>
+    </div>
+    """
+
+    # A second copy of the SAME footer, placed OUTSIDE the table entirely
+    # (as a direct sibling in .a4-page) purely for on-screen viewing.
+    # position:absolute on an element nested inside a <td> is unreliable
+    # across browsers — keeping the pinned-to-bottom footer as a direct
+    # child of the positioned .a4-page container sidesteps that entirely.
+    # It's hidden for print, where the tfoot-based copies above already
+    # correctly repeat per physical page.
+    screen_footer_html = f"""
+    <div class="footer-content screen-only-footer">
         {logo_footer}<strong>{i_name}</strong> | 📍 {i_address} | 📞 {i_contact} | 👨‍🏫 <strong>{t_name}</strong>
     </div>
     """
@@ -161,25 +174,29 @@ def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=N
     h2 {{ font-size: 16px; border-bottom: 1px dashed #ccc; padding-bottom: 5px; }}
     .content-body {{ {col_style} position: relative; z-index: 1; text-align: justify; }} 
     .content-body p {{ margin-bottom: 8px; margin-top: 4px; }}
-    /* Pinned to the bottom of the page when viewed on-screen in a browser
-       (short content would otherwise leave the footer sitting right after
-       the last question instead of at the page's bottom edge, like Word/PDF
-       already show it). This rule MUST come before @media print below —
-       CSS gives later same-specificity rules priority regardless of which
-       one is inside a media query, so @media print's override would
-       otherwise lose to this if placed after it. */
-    .footer-content {{ text-align: center; padding-top: 10px; border-top: 2px dashed #bbb; font-size: 13px; color: #444; z-index: 1; background: white; position: absolute; bottom: 20px; left: 20px; right: 20px; }}
+    /* Two copies of the footer exist (see Python code): one inside the
+       table's tfoot (for print/PDF, where it correctly repeats at the
+       bottom of each physical page), one as a direct sibling of .a4-page
+       (for on-screen viewing, pinned to the bottom via absolute
+       positioning — this only works reliably as a direct child of the
+       positioned container, not nested inside a table cell). Exactly one
+       of each pair is visible at a time. */
+    .footer-content {{ text-align: center; padding-top: 10px; border-top: 2px dashed #bbb; font-size: 13px; color: #444; z-index: 1; background: white; }}
+    .screen-only-footer {{ position: absolute; bottom: 20px; left: 20px; right: 20px; }}
+    .print-only-footer {{ display: none; }}
     @media print {{ 
         @page {{ size: A4; margin: 0; }} 
         body {{ background: white; padding: 0; margin: 0; display: block; }} 
         .a4-page {{ box-shadow: none; width: 100%; min-height: auto; padding: 10mm; margin: 0; page-break-after: always; }} 
         .watermark {{ color: rgba(0, 0, 0, 0.06) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
         tfoot {{ display: table-footer-group; }}
-        .footer-content {{ position: static; margin-top: 20px; bottom: auto; left: auto; right: auto; }}
+        .screen-only-footer {{ display: none; }}
+        .print-only-footer {{ display: block; margin-top: 20px; }}
     }} 
     </style></head><body><div class="a4-page">
     <div class="watermark">{i_name}</div>
     {tables_html}
+    {screen_footer_html}
     </div></body></html>"""
 
 import os
