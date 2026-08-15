@@ -1,6 +1,7 @@
 import random
 import smtplib
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 
@@ -14,6 +15,43 @@ from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger("paperbanao")
+
+# --- Login rate limiting (in-memory) ---
+# Tracks failed attempts per username. After MAX_LOGIN_ATTEMPTS failures,
+# that username is locked out for LOCKOUT_DURATION. This is intentionally
+# simple (no Redis/external store) since the app runs as a single instance;
+# if it's ever scaled to multiple instances, this state won't be shared
+# across them and each instance would track its own counts — an acceptable
+# trade-off at this scale, but worth revisiting if that changes.
+_login_lock = threading.Lock()
+_login_attempts = {}  # username -> {"count": int, "locked_until": datetime | None}
+MAX_LOGIN_ATTEMPTS = 5
+LOCKOUT_DURATION = timedelta(seconds=60)
+
+
+def _check_rate_limit(username: str):
+    with _login_lock:
+        record = _login_attempts.get(username)
+        if record and record["locked_until"]:
+            now = datetime.now(timezone.utc)
+            if now < record["locked_until"]:
+                remaining = int((record["locked_until"] - now).total_seconds())
+                raise HTTPException(429, f"Too many failed attempts. Try again in {remaining}s.")
+            _login_attempts[username] = {"count": 0, "locked_until": None}
+
+
+def _record_failed_login(username: str):
+    with _login_lock:
+        record = _login_attempts.setdefault(username, {"count": 0, "locked_until": None})
+        record["count"] += 1
+        if record["count"] >= MAX_LOGIN_ATTEMPTS:
+            record["locked_until"] = datetime.now(timezone.utc) + LOCKOUT_DURATION
+            record["count"] = 0
+
+
+def _record_successful_login(username: str):
+    with _login_lock:
+        _login_attempts.pop(username, None)
 
 
 @router.get("/me")
@@ -84,14 +122,19 @@ def signup(payload: SignupRequest):
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest):
     username = payload.username.strip()
+    _check_rate_limit(username)
+
     res = supabase.table("users").select("*").eq("username", username).execute()
     if not res.data:
+        _record_failed_login(username)
         raise HTTPException(401, "Invalid username or password.")
 
     user = res.data[0]
     if not verify_password(payload.password, user["password"]):
+        _record_failed_login(username)
         raise HTTPException(401, "Invalid username or password.")
 
+    _record_successful_login(username)
     token = create_access_token(username)
     return TokenResponse(access_token=token)
 
