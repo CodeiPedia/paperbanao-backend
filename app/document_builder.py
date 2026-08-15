@@ -175,8 +175,15 @@ def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=N
     </div></body></html>"""
 
 import os
+import threading
 
 _FONTS_DIR = os.path.join(os.path.dirname(__file__), "fonts")
+# Serializes PDF generation. WeasyPrint's font loading/subsetting isn't
+# guaranteed thread-safe, and on a memory-constrained server, concurrent
+# PDF requests could plausibly interfere with each other's font embedding
+# (some Hindi glyphs turning into tofu boxes only in production, never
+# reproducible locally, pointed at exactly this kind of shared-state issue).
+_PDF_LOCK = threading.Lock()
 
 def html_to_pdf(html_string):
     try:
@@ -217,7 +224,8 @@ def html_to_pdf(html_string):
         # which is why Hindi text there showed as tofu/missing-glyph boxes
         # for any word using a conjunct — this isn't a font problem, it's a
         # rendering-engine capability gap that no font file can work around.
-        pdf_bytes = HTML(string=html_for_pdf).write_pdf()
+        with _PDF_LOCK:
+            pdf_bytes = HTML(string=html_for_pdf).write_pdf()
         return pdf_bytes
     except Exception as e:
         logging.error(f"[PDF Generation Error] {e}")
