@@ -225,7 +225,16 @@ def html_to_pdf(html_string):
         # for any word using a conjunct — this isn't a font problem, it's a
         # rendering-engine capability gap that no font file can work around.
         with _PDF_LOCK:
-            pdf_bytes = HTML(string=html_for_pdf).write_pdf()
+            # full_fonts=True embeds the complete font file instead of a
+            # subset containing only "used" characters. WeasyPrint's default
+            # subsetting has a bug with complex Devanagari conjunct glyphs
+            # (formed via ligature substitution, not a simple 1:1 character
+            # mapping) — the subsetter sometimes drops glyphs those
+            # conjuncts need, so the PDF's text layer is correct Unicode
+            # but the visual glyph is missing (tofu box) since the embedded
+            # font subset doesn't actually contain it. This trades a
+            # somewhat larger PDF file for correct rendering.
+            pdf_bytes = HTML(string=html_for_pdf).write_pdf(full_fonts=True)
         return pdf_bytes
     except Exception as e:
         logging.error(f"[PDF Generation Error] {e}")
