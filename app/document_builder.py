@@ -157,18 +157,26 @@ def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=N
     .watermark {{ position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 85px; color: rgba(0, 0, 0, 0.06); z-index: -9999; pointer-events: none; white-space: nowrap; font-weight: bold; text-transform: uppercase; }}
     table {{ width: 100%; border-collapse: collapse; border: none; position: relative; z-index: 1; }}
     td {{ border: none; padding: 0; }}
+    h1, h2, h3 {{ text-align: center; column-span: all; }} 
+    h2 {{ font-size: 16px; border-bottom: 1px dashed #ccc; padding-bottom: 5px; }}
+    .content-body {{ {col_style} position: relative; z-index: 1; text-align: justify; }} 
+    .content-body p {{ margin-bottom: 8px; margin-top: 4px; }}
+    /* Pinned to the bottom of the page when viewed on-screen in a browser
+       (short content would otherwise leave the footer sitting right after
+       the last question instead of at the page's bottom edge, like Word/PDF
+       already show it). This rule MUST come before @media print below —
+       CSS gives later same-specificity rules priority regardless of which
+       one is inside a media query, so @media print's override would
+       otherwise lose to this if placed after it. */
+    .footer-content {{ text-align: center; padding-top: 10px; border-top: 2px dashed #bbb; font-size: 13px; color: #444; z-index: 1; background: white; position: absolute; bottom: 20px; left: 20px; right: 20px; }}
     @media print {{ 
         @page {{ size: A4; margin: 0; }} 
         body {{ background: white; padding: 0; margin: 0; display: block; }} 
         .a4-page {{ box-shadow: none; width: 100%; min-height: auto; padding: 10mm; margin: 0; page-break-after: always; }} 
         .watermark {{ color: rgba(0, 0, 0, 0.06) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
         tfoot {{ display: table-footer-group; }}
+        .footer-content {{ position: static; margin-top: 20px; bottom: auto; left: auto; right: auto; }}
     }} 
-    h1, h2, h3 {{ text-align: center; column-span: all; }} 
-    h2 {{ font-size: 16px; border-bottom: 1px dashed #ccc; padding-bottom: 5px; }}
-    .content-body {{ {col_style} position: relative; z-index: 1; text-align: justify; }} 
-    .content-body p {{ margin-bottom: 8px; margin-top: 4px; }}
-    .footer-content {{ text-align: center; margin-top: 20px; padding-top: 10px; border-top: 2px dashed #bbb; font-size: 13px; color: #444; position: relative; z-index: 1; background: white; }}
     </style></head><body><div class="a4-page">
     <div class="watermark">{i_name}</div>
     {tables_html}
