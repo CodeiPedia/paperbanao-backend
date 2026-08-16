@@ -149,13 +149,8 @@ def save_paper(payload: SavePaperRequest, user: dict = Depends(get_current_user)
 
 @router.delete("/history/{paper_id}")
 def delete_paper(paper_id: str, user: dict = Depends(get_current_user)):
-    # Accept the ID as a plain string and parse it ourselves — letting
-    # FastAPI enforce `int` directly on the path parameter produces a
-    # confusing raw Pydantic error ("Input should be a valid integer...")
-    # if anything odd ever reaches this route.
-    try:
-        paper_id_int = int(paper_id)
-    except ValueError:
-        raise HTTPException(400, "Invalid paper ID.")
-    supabase.table("papers").delete().eq("id", paper_id_int).eq("username", user["username"]).execute()
+    # papers.id is a UUID in Supabase, not an integer — pass it through as
+    # a plain string rather than forcing int(), which failed for every
+    # real ID and made delete silently impossible.
+    supabase.table("papers").delete().eq("id", paper_id).eq("username", user["username"]).execute()
     return {"message": "Deleted."}
