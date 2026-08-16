@@ -108,18 +108,24 @@ def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=N
     </div>
     """
 
-    # A second copy of the SAME footer, placed OUTSIDE the table entirely
-    # (as a direct sibling in .a4-page) purely for on-screen viewing.
-    # position:absolute on an element nested inside a <td> is unreliable
-    # across browsers — keeping the pinned-to-bottom footer as a direct
-    # child of the positioned .a4-page container sidesteps that entirely.
-    # It's hidden for print, where the tfoot-based copies above already
-    # correctly repeat per physical page.
-    screen_footer_html = f"""
-    <div class="footer-content screen-only-footer">
-        {logo_footer}<strong>{i_name}</strong> | 📍 {i_address} | 📞 {i_contact} | 👨‍🏫 <strong>{t_name}</strong>
-    </div>
-    """
+    # A second copy of the SAME footer, and a second copy of the watermark,
+    # both placed OUTSIDE the table (as siblings within a .page-section
+    # wrapper) purely for on-screen viewing. Each "page" (main content, and
+    # the Answer Key if present) gets its own wrapper so both the watermark
+    # and the footer appear at the bottom of EVERY section when scrolling
+    # through the HTML in a browser — not just once at the very end.
+    # position:absolute nested inside a <td> is unreliable across browsers,
+    # which is why these live outside the table entirely. Print/PDF still
+    # uses the original tfoot-based footer and the single position:fixed
+    # watermark (CSS Paged Media repeats position:fixed elements on every
+    # physical page automatically) — both already confirmed working there.
+    def screen_overlay_html():
+        return f"""
+        <div class="screen-watermark">{i_name}</div>
+        <div class="footer-content screen-only-footer">
+            {logo_footer}<strong>{i_name}</strong> | 📍 {i_address} | 📞 {i_contact} | 👨‍🏫 <strong>{t_name}</strong>
+        </div>
+        """
 
     ans_split_marker = "|||ANSWER_KEY_SPLIT|||"
     md_content = re.sub(r'(?im)^#+\s*Answer Key.*$', ans_split_marker, md_content)
@@ -132,34 +138,43 @@ def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=N
         # Splitting into two self-contained tables, with page-break-before on
         # the second table itself, avoids that bug entirely.
         tables_html = f"""
-        <table>
-            <thead><tr><td></td></tr></thead>
-            <tbody><tr><td>
-                {custom_header}
-                <div class="content-body">{markdown.markdown(q_part.strip())}</div>
-            </td></tr></tbody>
-            <tfoot><tr><td>{footer_html}</td></tr></tfoot>
-        </table>
-        <table style="page-break-before: always;">
-            <thead><tr><td></td></tr></thead>
-            <tbody><tr><td>
-                {simple_ak_header}
-                <h2 style="text-align: center; text-decoration: underline; margin-bottom: 15px;">ANSWER KEY</h2>
-                <div class="content-body">{markdown.markdown(a_part.strip())}</div>
-            </td></tr></tbody>
-            <tfoot><tr><td>{footer_html}</td></tr></tfoot>
-        </table>
+        <div class="page-section">
+            <table>
+                <thead><tr><td></td></tr></thead>
+                <tbody><tr><td>
+                    {custom_header}
+                    <div class="content-body">{markdown.markdown(q_part.strip())}</div>
+                </td></tr></tbody>
+                <tfoot><tr><td>{footer_html}</td></tr></tfoot>
+            </table>
+            {screen_overlay_html()}
+        </div>
+        <div class="page-section">
+            <table style="page-break-before: always;">
+                <thead><tr><td></td></tr></thead>
+                <tbody><tr><td>
+                    {simple_ak_header}
+                    <h2 style="text-align: center; text-decoration: underline; margin-bottom: 15px;">ANSWER KEY</h2>
+                    <div class="content-body">{markdown.markdown(a_part.strip())}</div>
+                </td></tr></tbody>
+                <tfoot><tr><td>{footer_html}</td></tr></tfoot>
+            </table>
+            {screen_overlay_html()}
+        </div>
         """
     else:
         tables_html = f"""
-        <table>
-            <thead><tr><td></td></tr></thead>
-            <tbody><tr><td>
-                {custom_header}
-                <div class="content-body">{markdown.markdown(md_content.strip())}</div>
-            </td></tr></tbody>
-            <tfoot><tr><td>{footer_html}</td></tr></tfoot>
-        </table>
+        <div class="page-section">
+            <table>
+                <thead><tr><td></td></tr></thead>
+                <tbody><tr><td>
+                    {custom_header}
+                    <div class="content-body">{markdown.markdown(md_content.strip())}</div>
+                </td></tr></tbody>
+                <tfoot><tr><td>{footer_html}</td></tr></tfoot>
+            </table>
+            {screen_overlay_html()}
+        </div>
         """
 
     col_style = "column-count: 2; column-gap: 15mm; column-rule: 1px solid #000; font-size: 14px;" if is_2_col else "font-size: 16px;"
@@ -167,20 +182,29 @@ def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=N
     return f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
     body {{ background: #f0f0f0; font-family: 'Noto Sans', 'Nirmala UI', 'Times New Roman', serif; margin: 0; padding: 20px; display: flex; justify-content: center; }} 
     .a4-page {{ background: white; width: 210mm; min-height: 297mm; padding: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.2); box-sizing: border-box; position: relative; overflow: hidden; }} 
-    .watermark {{ position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 85px; color: rgba(0, 0, 0, 0.06); z-index: -9999; pointer-events: none; white-space: nowrap; font-weight: bold; text-transform: uppercase; }}
+    /* Print-only watermark: position:fixed repeats automatically on every
+       physical page in CSS Paged Media (confirmed working). Hidden on
+       screen in favor of the per-section .screen-watermark below, since a
+       root-level position:fixed element with this low z-index ends up
+       painted behind the opaque .page-section backgrounds when viewed as
+       a normal continuously-scrolling HTML page (not an issue in PDF,
+       where each page is its own bounded canvas). */
+    .print-only-watermark {{ display: none; }}
     table {{ width: 100%; border-collapse: collapse; border: none; position: relative; z-index: 1; }}
     td {{ border: none; padding: 0; }}
     h1, h2, h3 {{ text-align: center; column-span: all; }} 
     h2 {{ font-size: 16px; border-bottom: 1px dashed #ccc; padding-bottom: 5px; }}
     .content-body {{ {col_style} position: relative; z-index: 1; text-align: justify; }} 
     .content-body p {{ margin-bottom: 8px; margin-top: 4px; }}
-    /* Two copies of the footer exist (see Python code): one inside the
-       table's tfoot (for print/PDF, where it correctly repeats at the
-       bottom of each physical page), one as a direct sibling of .a4-page
-       (for on-screen viewing, pinned to the bottom via absolute
-       positioning — this only works reliably as a direct child of the
-       positioned container, not nested inside a table cell). Exactly one
-       of each pair is visible at a time. */
+    /* Each "page" (.page-section) gets its own watermark + footer for
+       on-screen viewing, mirroring what print/PDF already does per
+       physical page. position:relative here gives its absolutely
+       positioned children (watermark, footer) a sane containing block,
+       and establishes a real stacking context so z-index:0 vs z-index:1
+       below resolve predictably instead of the ambiguous root-level
+       stacking a position:fixed element would otherwise need. */
+    .page-section {{ position: relative; min-height: 297mm; }}
+    .screen-watermark {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 85px; color: rgba(0, 0, 0, 0.06); z-index: 0; pointer-events: none; white-space: nowrap; font-weight: bold; text-transform: uppercase; }}
     .footer-content {{ text-align: center; padding-top: 10px; border-top: 2px dashed #bbb; font-size: 13px; color: #444; z-index: 1; background: white; }}
     .screen-only-footer {{ position: absolute; bottom: 20px; left: 20px; right: 20px; }}
     .print-only-footer {{ display: none; }}
@@ -188,15 +212,16 @@ def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=N
         @page {{ size: A4; margin: 0; }} 
         body {{ background: white; padding: 0; margin: 0; display: block; }} 
         .a4-page {{ box-shadow: none; width: 100%; min-height: auto; padding: 10mm; margin: 0; page-break-after: always; }} 
-        .watermark {{ color: rgba(0, 0, 0, 0.06) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+        .page-section {{ min-height: auto; }}
+        .screen-watermark {{ display: none; }}
+        .print-only-watermark {{ display: block; color: rgba(0, 0, 0, 0.06) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
         tfoot {{ display: table-footer-group; }}
         .screen-only-footer {{ display: none; }}
         .print-only-footer {{ display: block; margin-top: 20px; }}
     }} 
     </style></head><body><div class="a4-page">
-    <div class="watermark">{i_name}</div>
+    <div class="watermark print-only-watermark" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 85px; z-index: -9999; pointer-events: none; white-space: nowrap; font-weight: bold; text-transform: uppercase;">{i_name}</div>
     {tables_html}
-    {screen_footer_html}
     </div></body></html>"""
 
 import os
