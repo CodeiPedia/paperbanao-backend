@@ -1,4 +1,4 @@
-﻿from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
 class SignupRequest(BaseModel):
@@ -21,6 +21,11 @@ class VerifyPasswordReset(BaseModel):
     identifier: str
     otp: str
     new_password: str
+
+
+class VerifySignupOTP(BaseModel):
+    email: EmailStr
+    otp: str
 
 class QuestionTypeConfig(BaseModel):
     count: int = 0

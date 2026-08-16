@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app.database import supabase
 from app.security import hash_password, verify_password, create_access_token, get_current_user
-from app.schemas import SignupRequest, LoginRequest, TokenResponse, RequestPasswordReset, VerifyPasswordReset
+from app.schemas import SignupRequest, LoginRequest, TokenResponse, RequestPasswordReset, VerifyPasswordReset, VerifySignupOTP
 from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -87,7 +87,7 @@ def change_password(payload: ChangePasswordRequest, user: dict = Depends(get_cur
     return {"message": "Password updated."}
 
 
-@router.post("/signup", status_code=status.HTTP_201_CREATED)
+@router.post("/signup")
 def signup(payload: SignupRequest):
     username = payload.username.strip()
     email = payload.email.strip().lower()
@@ -104,19 +104,90 @@ def signup(payload: SignupRequest):
     if existing_email.data:
         raise HTTPException(409, "An account with this email already exists.")
 
+    otp = f"{random.randint(0, 999999):06d}"
+    otp_hash = hash_password(otp)
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+
+    try:
+        pending_data = {
+            "username": username,
+            "email": email,
+            "password_hash": hash_password(payload.password),
+            "otp_hash": otp_hash,
+            "otp_expires": expires_at,
+        }
+        # A pending signup is keyed by email — resubmitting the form (e.g.
+        # after a typo'd first attempt, or requesting a fresh code) simply
+        # overwrites the earlier pending attempt rather than erroring.
+        existing_pending = supabase.table("pending_signups").select("id").eq("email", email).execute()
+        if existing_pending.data:
+            supabase.table("pending_signups").update(pending_data).eq("email", email).execute()
+        else:
+            supabase.table("pending_signups").insert(pending_data).execute()
+    except Exception as e:
+        logger.error(f"[Signup Pending Error] {e}")
+        raise HTTPException(500, "Something went wrong. Please try again.")
+
+    _send_otp_email(email, otp, purpose="signup")
+    return {"message": "We've sent a 6-digit verification code to your email. Enter it to finish creating your account."}
+
+
+@router.post("/verify-signup", response_model=TokenResponse)
+def verify_signup(payload: VerifySignupOTP):
+    import bcrypt
+    email = payload.email.strip().lower()
+
+    res = supabase.table("pending_signups").select("*").eq("email", email).execute()
+    if not res.data:
+        raise HTTPException(400, "No pending signup found for this email. Please sign up again.")
+
+    pending = res.data[0]
+    if datetime.fromisoformat(pending["otp_expires"]) < datetime.now(timezone.utc):
+        raise HTTPException(400, "This code has expired. Please sign up again.")
+    if not bcrypt.checkpw(payload.otp.encode(), pending["otp_hash"].encode()):
+        raise HTTPException(400, "Incorrect code.")
+
+    # Re-check uniqueness in case someone else grabbed the username while
+    # this signup was sitting unverified.
+    existing = supabase.table("users").select("username").ilike("username", pending["username"]).execute()
+    if existing.data:
+        supabase.table("pending_signups").delete().eq("email", email).execute()
+        raise HTTPException(409, "That username was taken while your email was being verified. Please sign up again.")
+
     try:
         supabase.table("users").insert({
-            "username": username,
-            "password": hash_password(payload.password),
-            "email": email,
+            "username": pending["username"],
+            "password": pending["password_hash"],
+            "email": pending["email"],
             "papers_generated": 0,
             "is_pro": False,
         }).execute()
+        supabase.table("pending_signups").delete().eq("email", email).execute()
     except Exception as e:
-        logger.error(f"[Signup Error] {e}")
+        logger.error(f"[Verify Signup Error] {e}")
         raise HTTPException(500, "Something went wrong creating your account.")
 
-    return {"message": "Account created successfully."}
+    # Log the person straight in — they just proved the email is theirs,
+    # no reason to make them type their password again immediately after.
+    token = create_access_token(pending["username"])
+    return TokenResponse(access_token=token)
+
+
+@router.post("/resend-signup-otp")
+def resend_signup_otp(payload: RequestPasswordReset):
+    email = payload.identifier.strip().lower()
+    generic_msg = {"message": "If a signup is pending for that email, a new code has been sent."}
+
+    res = supabase.table("pending_signups").select("email").eq("email", email).execute()
+    if not res.data:
+        return generic_msg
+
+    otp = f"{random.randint(0, 999999):06d}"
+    otp_hash = hash_password(otp)
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    supabase.table("pending_signups").update({"otp_hash": otp_hash, "otp_expires": expires_at}).eq("email", email).execute()
+    _send_otp_email(email, otp, purpose="signup")
+    return generic_msg
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -197,13 +268,19 @@ def reset_password(payload: VerifyPasswordReset):
     return {"message": "Password updated! Please log in with your new password."}
 
 
-def _send_otp_email(to_email: str, otp: str):
+def _send_otp_email(to_email: str, otp: str, purpose: str = "reset"):
+    subject = "PaperBanao - Verify your email" if purpose == "signup" else "PaperBanao - Password Reset Code"
+    body_intro = (
+        f"Your PaperBanao email verification code is: {otp}"
+        if purpose == "signup"
+        else f"Your PaperBanao password reset code is: {otp}"
+    )
     try:
         msg = MIMEText(
-            f"Your PaperBanao password reset code is: {otp}\n\n"
+            f"{body_intro}\n\n"
             f"This code expires in 10 minutes. If you didn't request this, ignore this email."
         )
-        msg["Subject"] = "PaperBanao - Password Reset Code"
+        msg["Subject"] = subject
         msg["From"] = settings.SMTP_USER
         msg["To"] = to_email
 
