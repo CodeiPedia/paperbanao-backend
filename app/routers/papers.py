@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
@@ -17,6 +17,8 @@ router = APIRouter(prefix="/papers", tags=["papers"])
 logger = logging.getLogger("paperbanao")
 
 FREE_LIMIT = 5
+PRO_MONTHLY_LIMIT = 75  # fair-use cap so a single heavy user can't run up
+                        # Gemini API costs well beyond what ₹99/month covers
 
 
 class RegenerateQuestionRequest(BaseModel):
@@ -99,6 +101,32 @@ def generate_paper(req: GeneratePaperRequest, user: dict = Depends(get_current_u
     if not is_pro and papers_used >= FREE_LIMIT:
         raise HTTPException(402, "Free trial expired. Please upgrade to Pro to keep generating papers.")
 
+    if is_pro:
+        now = datetime.now(timezone.utc)
+        month_start_raw = user.get("pro_month_start")
+        papers_this_month = user.get("pro_papers_this_month", 0)
+
+        # A Pro account's monthly counter resets the first time it's used
+        # in a new calendar month — no cron job needed, just checked here.
+        same_month = False
+        if month_start_raw:
+            stored = datetime.fromisoformat(month_start_raw.replace("Z", "+00:00"))
+            same_month = (stored.year == now.year and stored.month == now.month)
+
+        if not same_month:
+            papers_this_month = 0
+            supabase.table("users").update({
+                "pro_papers_this_month": 0,
+                "pro_month_start": now.isoformat(),
+            }).eq("username", user["username"]).execute()
+
+        if papers_this_month >= PRO_MONTHLY_LIMIT:
+            raise HTTPException(
+                429,
+                f"You've reached the fair-use limit of {PRO_MONTHLY_LIMIT} papers this month. "
+                f"It resets at the start of next month."
+            )
+
     prompt = build_question_prompt(req)
     api_key = settings.GEMINI_API_KEY
     model_name = get_working_model_name(api_key)
@@ -114,7 +142,12 @@ def generate_paper(req: GeneratePaperRequest, user: dict = Depends(get_current_u
 
     blocks = [b.strip() for b in resp_text.split("|||") if b.strip()]
 
-    supabase.table("users").update({"papers_generated": papers_used + 1}).eq("username", user["username"]).execute()
+    update_data = {"papers_generated": papers_used + 1}
+    if is_pro:
+        update_data["pro_papers_this_month"] = user.get("pro_papers_this_month", 0) + 1
+        if not user.get("pro_month_start"):
+            update_data["pro_month_start"] = datetime.now(timezone.utc).isoformat()
+    supabase.table("users").update(update_data).eq("username", user["username"]).execute()
 
     return {"blocks": blocks}
 
