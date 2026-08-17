@@ -1,11 +1,10 @@
 import random
-import smtplib
+import requests
 import logging
 import threading
 from datetime import datetime, timedelta, timezone
-from email.mime.text import MIMEText
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
 from pydantic import BaseModel
 
 from app.database import supabase
@@ -88,7 +87,7 @@ def change_password(payload: ChangePasswordRequest, user: dict = Depends(get_cur
 
 
 @router.post("/signup")
-def signup(payload: SignupRequest):
+def signup(payload: SignupRequest, background_tasks: BackgroundTasks):
     username = payload.username.strip()
     email = payload.email.strip().lower()
 
@@ -128,7 +127,11 @@ def signup(payload: SignupRequest):
         logger.error(f"[Signup Pending Error] {e}")
         raise HTTPException(500, "Something went wrong. Please try again.")
 
-    _send_otp_email(email, otp, purpose="signup")
+    # Sending via SMTP can be slow (or hang, on hosts that restrict
+    # outbound email ports) — scheduling it as a background task means the
+    # signup response returns immediately regardless, rather than the
+    # whole request hanging on the email server.
+    background_tasks.add_task(_send_otp_email, email, otp, "signup")
     return {"message": "We've sent a 6-digit verification code to your email. Enter it to finish creating your account."}
 
 
@@ -174,7 +177,7 @@ def verify_signup(payload: VerifySignupOTP):
 
 
 @router.post("/resend-signup-otp")
-def resend_signup_otp(payload: RequestPasswordReset):
+def resend_signup_otp(payload: RequestPasswordReset, background_tasks: BackgroundTasks):
     email = payload.identifier.strip().lower()
     generic_msg = {"message": "If a signup is pending for that email, a new code has been sent."}
 
@@ -186,7 +189,7 @@ def resend_signup_otp(payload: RequestPasswordReset):
     otp_hash = hash_password(otp)
     expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
     supabase.table("pending_signups").update({"otp_hash": otp_hash, "otp_expires": expires_at}).eq("email", email).execute()
-    _send_otp_email(email, otp, purpose="signup")
+    background_tasks.add_task(_send_otp_email, email, otp, "signup")
     return generic_msg
 
 
@@ -211,7 +214,7 @@ def login(payload: LoginRequest):
 
 
 @router.post("/request-password-reset")
-def request_password_reset(payload: RequestPasswordReset):
+def request_password_reset(payload: RequestPasswordReset, background_tasks: BackgroundTasks):
     identifier = payload.identifier.strip()
     generic_msg = {"message": "If that account exists, a reset code has been sent to its registered email."}
 
@@ -234,7 +237,7 @@ def request_password_reset(payload: RequestPasswordReset):
         "reset_otp_expires": expires_at,
     }).eq("username", user["username"]).execute()
 
-    _send_otp_email(user["email"], otp)
+    background_tasks.add_task(_send_otp_email, user["email"], otp)
     return generic_msg
 
 
@@ -275,18 +278,25 @@ def _send_otp_email(to_email: str, otp: str, purpose: str = "reset"):
         if purpose == "signup"
         else f"Your PaperBanao password reset code is: {otp}"
     )
-    try:
-        msg = MIMEText(
-            f"{body_intro}\n\n"
-            f"This code expires in 10 minutes. If you didn't request this, ignore this email."
-        )
-        msg["Subject"] = subject
-        msg["From"] = settings.SMTP_USER
-        msg["To"] = to_email
+    text_content = f"{body_intro}\n\nThis code expires in 10 minutes. If you didn't request this, ignore this email."
 
-        with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.sendmail(settings.SMTP_USER, [to_email], msg.as_string())
+    try:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": f"PaperBanao <{settings.SENDER_EMAIL}>",
+                "to": [to_email],
+                "subject": subject,
+                "text": text_content,
+            },
+            timeout=10,
+        )
+        if response.status_code >= 300:
+            logger.error(f"[Resend Email Error] {response.status_code}: {response.text}")
     except Exception as e:
         logger.error(f"[Email Send Error] {e}")
         # Don't fail the request just because the email didn't send —
