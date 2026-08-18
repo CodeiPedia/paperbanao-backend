@@ -34,7 +34,7 @@ def clean_math_for_word(text):
 
 # 🌟 HTML RENDERER 🌟
 
-def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=None, is_2_col=False, sub="Subject", grade="Class", total_m="Marks", exam_time="Time", topics=""):
+def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=None, is_2_col=False, sub="Subject", grade="Class", total_m="Marks", exam_time="Time", topics="", custom_instructions="", reading_time=""):
     md_content = clean_math_for_word(md_content)
     
     md_content = re.sub(r"^#.*?\*\*\*", "", md_content, count=1, flags=re.DOTALL).strip()
@@ -56,6 +56,13 @@ def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=N
     
     main_heading_text = topics.strip().upper() if topics.strip() != "" else sub.upper()
     
+    reading_time_html = f" (+ {reading_time} reading time)" if reading_time.strip() else ""
+    custom_instructions_html = f"""
+    <div style='border: 1px solid #999; padding: 8px 12px; margin-bottom: 15px; font-size: 13px; background: #fafafa;'>
+        <strong>Instructions:</strong> {custom_instructions.strip()}
+    </div>
+    """ if custom_instructions.strip() else ""
+
     custom_header = f"""
     <div style='border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 10px; width: 100%;'>
         <table style='width: 100%; border-collapse: collapse; border: none; margin-bottom: 10px;'>
@@ -74,7 +81,7 @@ def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=N
         </table>
         <table style='width: 100%; font-weight: bold; font-size: 13px; border: none;'>
             <tr>
-                <td style='text-align: left; vertical-align: bottom; width: 33%; border: none;'>Class : {grade}<br>Time : {exam_time}</td>
+                <td style='text-align: left; vertical-align: bottom; width: 33%; border: none;'>Class : {grade}<br>Time : {exam_time}{reading_time_html}</td>
                 <td style='text-align: center; vertical-align: middle; width: 34%; border: none;'>
                     <div style='border: 2px solid black; border-radius: 12px; display: inline-block; padding: 4px 25px; font-weight: bold; font-size: 14px; background: white;'>
                         EXAMINATION
@@ -90,6 +97,7 @@ def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=N
         </div>
     </div>
     <h2 style='text-align: center; text-decoration: underline; text-transform: uppercase; margin-top: 0; margin-bottom: 15px; font-size: 18px;'>{main_heading_text}</h2>
+    {custom_instructions_html}
     """
 
     # A SIMPLER header for the Answer Key page — reusing the exact same
@@ -284,7 +292,7 @@ def html_to_pdf(html_string):
         return None
 
 # 🌟 WORD RENDERER 🌟
-def create_word_docx(md_content, i_name, i_address, i_contact, t_name, inst_logo=None, is_2_col=False, sub="Subject", grade="Class", total_m="Marks", exam_time="Time", topics=""):
+def create_word_docx(md_content, i_name, i_address, i_contact, t_name, inst_logo=None, is_2_col=False, sub="Subject", grade="Class", total_m="Marks", exam_time="Time", topics="", custom_instructions="", reading_time=""):
     doc = Document()
     
     md_content = re.sub(r"^#.*?\*\*\*", "", md_content, count=1, flags=re.DOTALL).strip()
@@ -393,7 +401,8 @@ def create_word_docx(md_content, i_name, i_address, i_contact, t_name, inst_logo
 
         p3 = details_table.cell(0,0).paragraphs[0]
         p3.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        r3 = p3.add_run(f"Class : {grade}\nTime : {exam_time}")
+        time_text = f"Time : {exam_time}" + (f" (+ {reading_time} reading time)" if reading_time.strip() else "")
+        r3 = p3.add_run(f"Class : {grade}\n{time_text}")
         r3.bold = True
         r3.font.size = Pt(10)
         apply_cs_font(r3)
@@ -425,6 +434,17 @@ def create_word_docx(md_content, i_name, i_address, i_contact, t_name, inst_logo
         ptopics.runs[0].font.size = Pt(14)
         ptopics.runs[0].bold = True
         apply_cs_font(ptopics.runs[0])
+
+        if custom_instructions.strip():
+            pinst = doc.add_paragraph()
+            rinst_label = pinst.add_run("Instructions: ")
+            rinst_label.bold = True
+            rinst_label.font.size = Pt(10)
+            apply_cs_font(rinst_label)
+            rinst = pinst.add_run(custom_instructions.strip())
+            rinst.font.size = Pt(10)
+            apply_cs_font(rinst)
+
         doc.add_paragraph() 
 
     insert_chate_header()

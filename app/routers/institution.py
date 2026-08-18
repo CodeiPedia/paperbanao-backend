@@ -1,4 +1,4 @@
-﻿import base64
+import base64
 import logging
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form
@@ -15,6 +15,7 @@ def get_defaults(user: dict = Depends(get_current_user)):
     res = supabase.table("users").select(
         "default_inst_name, default_inst_address, default_inst_contact, "
         "default_teacher_name, default_paper_language, default_board_format, "
+        "default_custom_instructions, default_reading_time, "
         "default_logo_base64, default_logo_mimetype"
     ).eq("username", user["username"]).execute()
     return res.data[0] if res.data else {}
@@ -28,6 +29,8 @@ async def save_defaults(
     teacher_name: str = Form(""),
     paper_language: str = Form("English"),
     board_format: str = Form("Standard"),
+    custom_instructions: str = Form(""),
+    reading_time: str = Form(""),
     logo: UploadFile = File(None),
     user: dict = Depends(get_current_user),
 ):
@@ -38,6 +41,8 @@ async def save_defaults(
         "default_teacher_name": teacher_name,
         "default_paper_language": paper_language,
         "default_board_format": board_format,
+        "default_custom_instructions": custom_instructions,
+        "default_reading_time": reading_time,
     }
     if logo is not None:
         logo_bytes = await logo.read()
@@ -47,4 +52,3 @@ async def save_defaults(
 
     supabase.table("users").update(update_data).eq("username", user["username"]).execute()
     return {"message": "Saved."}
-

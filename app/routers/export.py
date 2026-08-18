@@ -40,11 +40,12 @@ class ExportRequest(BaseModel):
 def _get_institution_details(username: str):
     res = supabase.table("users").select(
         "default_inst_name, default_inst_address, default_inst_contact, "
-        "default_teacher_name, default_logo_base64, default_logo_mimetype"
+        "default_teacher_name, default_logo_base64, default_logo_mimetype, "
+        "default_custom_instructions, default_reading_time"
     ).eq("username", username).execute()
 
     if not res.data:
-        return "PaperBanao", "", "", "", None
+        return "PaperBanao", "", "", "", None, "", ""
 
     row = res.data[0]
     logo = None
@@ -60,6 +61,8 @@ def _get_institution_details(username: str):
         row.get("default_inst_contact") or "",
         row.get("default_teacher_name") or "",
         logo,
+        row.get("default_custom_instructions") or "",
+        row.get("default_reading_time") or "",
     )
 
 
@@ -68,11 +71,12 @@ def export_paper(fmt: str, payload: ExportRequest, user: dict = Depends(get_curr
     if fmt not in ("html", "docx", "pdf"):
         raise HTTPException(400, "Format must be html, docx, or pdf.")
 
-    inst_name, inst_address, inst_contact, teacher_name, logo = _get_institution_details(user["username"])
+    inst_name, inst_address, inst_contact, teacher_name, logo, custom_instructions, reading_time = _get_institution_details(user["username"])
 
     html = create_a4_html(
         payload.content, inst_name, inst_address, inst_contact, teacher_name, logo,
-        False, payload.subject, payload.class_name, payload.marks, payload.exam_time, payload.topics
+        False, payload.subject, payload.class_name, payload.marks, payload.exam_time, payload.topics,
+        custom_instructions, reading_time
     )
 
     if fmt == "html":
@@ -83,7 +87,8 @@ def export_paper(fmt: str, payload: ExportRequest, user: dict = Depends(get_curr
     if fmt == "docx":
         word_bytes = create_word_docx(
             payload.content, inst_name, inst_address, inst_contact, teacher_name, logo,
-            False, payload.subject, payload.class_name, payload.marks, payload.exam_time, payload.topics
+            False, payload.subject, payload.class_name, payload.marks, payload.exam_time, payload.topics,
+            custom_instructions, reading_time
         )
         return Response(content=word_bytes, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={
             "Content-Disposition": safe_content_disposition(f"{payload.subject}_Paper.docx")
