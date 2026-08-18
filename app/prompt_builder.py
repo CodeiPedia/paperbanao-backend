@@ -1,4 +1,4 @@
-﻿from app.schemas import GeneratePaperRequest
+from app.schemas import GeneratePaperRequest
 
 def build_question_prompt(req: GeneratePaperRequest) -> str:
     reqs = []
@@ -26,7 +26,13 @@ def build_question_prompt(req: GeneratePaperRequest) -> str:
 
     base = (
         f"Subject: {req.subject}, Class: {req.class_name}.\n"
-        f"Topics: {req.topics or req.subject}\n\n"
+        f"Topics/Chapters: {req.topics or req.subject}\n\n"
+        "STRICT SYLLABUS RULE: Every single question must come ONLY from the exact topics/chapters listed "
+        "above, at a difficulty and scope appropriate for the stated Class, following the NCERT syllabus for "
+        "that class and subject. Do NOT include questions from any other chapter, topic, or grade level — "
+        "even ones from the same subject that seem related or commonly paired. If you are unsure whether a "
+        "concept belongs to the listed topics/chapters, do not use it. Every question must be traceable to "
+        "one of the specific topics/chapters named above.\n\n"
         + "\n\n".join(reqs)
         + answer_key_instr
         + f"\n\n{lang_instr}\n\n"
