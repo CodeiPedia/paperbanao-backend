@@ -259,12 +259,24 @@ def html_to_pdf(html_string):
         # PDF itself. We bundle a merged font (Noto Sans + Noto Sans
         # Devanagari) covering both English and Hindi glyphs, so this works
         # reliably regardless of what's installed on the deployment server.
-        regular_path = os.path.join(_FONTS_DIR, "PaperBanaoMerged-Regular.ttf")
-        bold_path = os.path.join(_FONTS_DIR, "PaperBanaoMerged-Bold.ttf")
+        regular_latin = os.path.join(_FONTS_DIR, "NotoSans-Regular.ttf")
+        regular_dev = os.path.join(_FONTS_DIR, "NotoSansDevanagari-Regular.ttf")
+        bold_latin = os.path.join(_FONTS_DIR, "NotoSans-Bold.ttf")
+        bold_dev = os.path.join(_FONTS_DIR, "NotoSansDevanagari-Bold.ttf")
+        # Two font files per weight (Latin + Devanagari), selected
+        # automatically per-character via unicode-range, instead of one
+        # merged font file. The earlier merged-font approach (built via
+        # fonttools pyftmerge) is a plausible source of the intermittent
+        # Hindi-glyph corruption seen only in production and never
+        # reproducible locally — merging two fonts' cmap/glyph tables is a
+        # non-trivial transformation. Using the original, unmodified Google
+        # Noto font files directly removes that step entirely.
         pdf_font_override = f"""
         <style>
-            @font-face {{ font-family: 'PaperBanaoPDF'; src: url({regular_path}); font-weight: normal; }}
-            @font-face {{ font-family: 'PaperBanaoPDF'; src: url({bold_path}); font-weight: bold; }}
+            @font-face {{ font-family: 'PaperBanaoPDF'; src: url({regular_latin}); font-weight: normal; }}
+            @font-face {{ font-family: 'PaperBanaoPDF'; src: url({regular_dev}); font-weight: normal; unicode-range: U+0900-097F; }}
+            @font-face {{ font-family: 'PaperBanaoPDF'; src: url({bold_latin}); font-weight: bold; }}
+            @font-face {{ font-family: 'PaperBanaoPDF'; src: url({bold_dev}); font-weight: bold; unicode-range: U+0900-097F; }}
             * {{ font-family: 'PaperBanaoPDF' !important; }}
         </style>
         """
