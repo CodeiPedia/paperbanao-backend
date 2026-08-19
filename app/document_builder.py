@@ -273,9 +273,9 @@ def html_to_pdf(html_string):
         # Noto font files directly removes that step entirely.
         pdf_font_override = f"""
         <style>
-            @font-face {{ font-family: 'PaperBanaoPDF'; src: url({regular_latin}); font-weight: normal; }}
+            @font-face {{ font-family: 'PaperBanaoPDF'; src: url({regular_latin}); font-weight: normal; unicode-range: U+0000-08FF, U+2000-23FF; }}
             @font-face {{ font-family: 'PaperBanaoPDF'; src: url({regular_dev}); font-weight: normal; unicode-range: U+0900-097F; }}
-            @font-face {{ font-family: 'PaperBanaoPDF'; src: url({bold_latin}); font-weight: bold; }}
+            @font-face {{ font-family: 'PaperBanaoPDF'; src: url({bold_latin}); font-weight: bold; unicode-range: U+0000-08FF, U+2000-23FF; }}
             @font-face {{ font-family: 'PaperBanaoPDF'; src: url({bold_dev}); font-weight: bold; unicode-range: U+0900-097F; }}
             * {{ font-family: 'PaperBanaoPDF' !important; }}
         </style>
