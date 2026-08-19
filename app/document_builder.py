@@ -207,10 +207,10 @@ def create_a4_html(md_content, i_name, i_address, i_contact, t_name, inst_logo=N
        children (watermark, footer) a sane containing block and a real
        stacking context, so z-index:0 vs z-index:1 below resolve
        predictably regardless of viewing context. */
-    .page-section {{ position: relative; min-height: 297mm; }}
+    .page-section {{ position: relative; min-height: 297mm; display: flex; flex-direction: column; }} .page-section > table {{ flex: 1 0 auto; }}
     .screen-watermark {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 85px; color: rgba(0, 0, 0, 0.06); z-index: 0; pointer-events: none; white-space: nowrap; font-weight: bold; text-transform: uppercase; }}
     .footer-content {{ text-align: center; padding-top: 10px; border-top: 2px dashed #bbb; font-size: 13px; color: #444; z-index: 1; background: white; }}
-    .screen-only-footer {{ position: absolute; bottom: 20px; left: 20px; right: 20px; }}
+    .screen-only-footer {{ }}
     .print-only-footer {{ display: none; }}
     @media print {{ 
         @page {{ size: A4; margin: 0; }} 
