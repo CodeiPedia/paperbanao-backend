@@ -1,5 +1,7 @@
 import random
 import requests
+import httpx
+import time
 import logging
 import threading
 from datetime import datetime, timedelta, timezone
@@ -14,6 +16,25 @@ from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger("paperbanao")
+
+
+def _execute_with_retry(query, retries=2, delay=0.4):
+    """Runs a Supabase query's .execute(), retrying briefly on transient
+    network hiccups between Render and Supabase (e.g. HTTP/2 connections
+    that get silently dropped mid-request — httpx.RemoteProtocolError).
+    These are momentary blips, not real failures, and were previously
+    causing signup/OTP requests to crash with a 500 before the email-send
+    step ever ran — so the user would never receive their code."""
+    last_exc = None
+    for attempt in range(retries + 1):
+        try:
+            return query.execute()
+        except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+            last_exc = e
+            logger.warning(f"[Supabase transient error, attempt {attempt + 1}] {e}")
+            if attempt < retries:
+                time.sleep(delay)
+    raise last_exc
 
 # --- Login rate limiting (in-memory) ---
 # Tracks failed attempts per username. After MAX_LOGIN_ATTEMPTS failures,
@@ -96,10 +117,10 @@ def signup(payload: SignupRequest, background_tasks: BackgroundTasks):
     if len(payload.password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters.")
 
-    existing = supabase.table("users").select("username").ilike("username", username).execute()
+    existing = _execute_with_retry(supabase.table("users").select("username").ilike("username", username))
     if existing.data:
         raise HTTPException(409, "Username already exists.")
-    existing_email = supabase.table("users").select("username").ilike("email", email).execute()
+    existing_email = _execute_with_retry(supabase.table("users").select("username").ilike("email", email))
     if existing_email.data:
         raise HTTPException(409, "An account with this email already exists.")
 
@@ -118,11 +139,11 @@ def signup(payload: SignupRequest, background_tasks: BackgroundTasks):
         # A pending signup is keyed by email — resubmitting the form (e.g.
         # after a typo'd first attempt, or requesting a fresh code) simply
         # overwrites the earlier pending attempt rather than erroring.
-        existing_pending = supabase.table("pending_signups").select("id").eq("email", email).execute()
+        existing_pending = _execute_with_retry(supabase.table("pending_signups").select("id").eq("email", email))
         if existing_pending.data:
-            supabase.table("pending_signups").update(pending_data).eq("email", email).execute()
+            _execute_with_retry(supabase.table("pending_signups").update(pending_data).eq("email", email))
         else:
-            supabase.table("pending_signups").insert(pending_data).execute()
+            _execute_with_retry(supabase.table("pending_signups").insert(pending_data))
     except Exception as e:
         logger.error(f"[Signup Pending Error] {e}")
         raise HTTPException(500, "Something went wrong. Please try again.")
@@ -140,7 +161,7 @@ def verify_signup(payload: VerifySignupOTP):
     import bcrypt
     email = payload.email.strip().lower()
 
-    res = supabase.table("pending_signups").select("*").eq("email", email).execute()
+    res = _execute_with_retry(supabase.table("pending_signups").select("*").eq("email", email))
     if not res.data:
         raise HTTPException(400, "No pending signup found for this email. Please sign up again.")
 
@@ -152,20 +173,20 @@ def verify_signup(payload: VerifySignupOTP):
 
     # Re-check uniqueness in case someone else grabbed the username while
     # this signup was sitting unverified.
-    existing = supabase.table("users").select("username").ilike("username", pending["username"]).execute()
+    existing = _execute_with_retry(supabase.table("users").select("username").ilike("username", pending["username"]))
     if existing.data:
-        supabase.table("pending_signups").delete().eq("email", email).execute()
+        _execute_with_retry(supabase.table("pending_signups").delete().eq("email", email))
         raise HTTPException(409, "That username was taken while your email was being verified. Please sign up again.")
 
     try:
-        supabase.table("users").insert({
+        _execute_with_retry(supabase.table("users").insert({
             "username": pending["username"],
             "password": pending["password_hash"],
             "email": pending["email"],
             "papers_generated": 0,
             "is_pro": False,
-        }).execute()
-        supabase.table("pending_signups").delete().eq("email", email).execute()
+        }))
+        _execute_with_retry(supabase.table("pending_signups").delete().eq("email", email))
     except Exception as e:
         logger.error(f"[Verify Signup Error] {e}")
         raise HTTPException(500, "Something went wrong creating your account.")
@@ -181,14 +202,14 @@ def resend_signup_otp(payload: RequestPasswordReset, background_tasks: Backgroun
     email = payload.identifier.strip().lower()
     generic_msg = {"message": "If a signup is pending for that email, a new code has been sent."}
 
-    res = supabase.table("pending_signups").select("email").eq("email", email).execute()
+    res = _execute_with_retry(supabase.table("pending_signups").select("email").eq("email", email))
     if not res.data:
         return generic_msg
 
     otp = f"{random.randint(0, 999999):06d}"
     otp_hash = hash_password(otp)
     expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
-    supabase.table("pending_signups").update({"otp_hash": otp_hash, "otp_expires": expires_at}).eq("email", email).execute()
+    _execute_with_retry(supabase.table("pending_signups").update({"otp_hash": otp_hash, "otp_expires": expires_at}).eq("email", email))
     background_tasks.add_task(_send_otp_email, email, otp, "signup")
     return generic_msg
 
