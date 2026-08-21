@@ -2,6 +2,7 @@ import random
 import requests
 import httpx
 import time
+import secrets
 import logging
 import threading
 from datetime import datetime, timedelta, timezone
@@ -179,12 +180,14 @@ def verify_signup(payload: VerifySignupOTP):
         raise HTTPException(409, "That username was taken while your email was being verified. Please sign up again.")
 
     try:
+        session_id = secrets.token_hex(16)
         _execute_with_retry(supabase.table("users").insert({
             "username": pending["username"],
             "password": pending["password_hash"],
             "email": pending["email"],
             "papers_generated": 0,
             "is_pro": False,
+            "current_session_id": session_id,
         }))
         _execute_with_retry(supabase.table("pending_signups").delete().eq("email", email))
     except Exception as e:
@@ -193,7 +196,7 @@ def verify_signup(payload: VerifySignupOTP):
 
     # Log the person straight in — they just proved the email is theirs,
     # no reason to make them type their password again immediately after.
-    token = create_access_token(pending["username"])
+    token = create_access_token(pending["username"], session_id)
     return TokenResponse(access_token=token)
 
 
@@ -230,7 +233,12 @@ def login(payload: LoginRequest):
         raise HTTPException(401, "Invalid username or password.")
 
     _record_successful_login(username)
-    token = create_access_token(username)
+    # A fresh session_id here means any token issued to a previous login
+    # (e.g. on another device) stops working the next time it's used,
+    # since get_current_user checks it against this same value.
+    session_id = secrets.token_hex(16)
+    _execute_with_retry(supabase.table("users").update({"current_session_id": session_id}).eq("username", username))
+    token = create_access_token(username, session_id)
     return TokenResponse(access_token=token)
 
 
