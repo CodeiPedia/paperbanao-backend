@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, papers, curriculum, institution, export, digitize, payments
+from app.routers import auth, papers, curriculum, institution, export, digitize, payments, support
 
 logging.basicConfig(level=logging.INFO)
 
@@ -27,6 +27,7 @@ app.include_router(institution.router)
 app.include_router(export.router)
 app.include_router(digitize.router)
 app.include_router(payments.router)
+app.include_router(support.router)
 
 
 @app.get("/")
