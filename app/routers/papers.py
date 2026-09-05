@@ -11,6 +11,7 @@ from app.schemas import GeneratePaperRequest, SavePaperRequest
 from app.prompt_builder import build_question_prompt
 from app.gemini_client import generate_gemini_content, get_working_model_name
 from app.pdf_extractor import extract_text_from_pdf
+from app.diagram_generator import process_diagrams
 from app.config import settings
 
 router = APIRouter(prefix="/papers", tags=["papers"])
@@ -50,6 +51,12 @@ def regenerate_question(payload: RegenerateQuestionRequest, user: dict = Depends
         "Write a NEW question of the same type, difficulty, and marks as the original, strictly on the same "
         "subject/topics. Keep the same question number label if the original had one (e.g. 'Q3.'). "
         "Use Unicode math symbols (θ, π, √, ²) instead of LaTeX.\n\n"
+        "If (and only if) this question is about a right-angled triangle, a circle, or bar-graph statistics, "
+        "you may add an accurate diagram with this exact tag right after the question text (numbers in the "
+        "tag must match the question text exactly): [DIAGRAM:triangle|base=4|height=3|base_label=4 cm|"
+        "height_label=3 cm|hyp_label=?|labels=B,C,A] or [DIAGRAM:circle|radius_label=7 cm|center_label=O|"
+        "point_label=P] or [DIAGRAM:bargraph|categories=0-10,10-20|values=5,12|x_label=X|y_label=Y]. "
+        "Most questions should have no diagram at all.\n\n"
         "Then on a new line write the exact delimiter @@@ANSWER@@@ followed by the correct answer/solution for "
         "THIS NEW question — a brief correct option letter for MCQ/True-False/Fill-in-the-blank, or a full "
         "step-by-step explanation for Short/Long answer questions.\n\n"
@@ -72,10 +79,15 @@ def regenerate_question(payload: RegenerateQuestionRequest, user: dict = Depends
     else:
         new_question, new_answer = resp_text.strip(), None
 
+    # Same diagram-tag handling as full paper generation — convert any
+    # [DIAGRAM:...] tag into a rendered image + lightweight text marker.
+    new_question, diagrams = process_diagrams(new_question)
+
     return {
         "question": new_question,
         "answer": new_answer,
         "question_number": extract_question_number(payload.old_text),
+        "diagrams": diagrams,
     }
 
 
@@ -140,6 +152,11 @@ def generate_paper(req: GeneratePaperRequest, user: dict = Depends(get_current_u
             raise HTTPException(429, "Daily generation limit reached. Please try again later.")
         raise HTTPException(500, "Something went wrong generating the paper.")
 
+    # Turn any [DIAGRAM:...] tags the AI included into actual rendered
+    # images (as base64 PNGs), replacing each tag with a short marker in
+    # the text so the question/answer blocks stay lightweight and editable.
+    resp_text, diagrams = process_diagrams(resp_text)
+
     blocks = [b.strip() for b in resp_text.split("|||") if b.strip()]
 
     update_data = {"papers_generated": papers_used + 1}
@@ -149,7 +166,7 @@ def generate_paper(req: GeneratePaperRequest, user: dict = Depends(get_current_u
             update_data["pro_month_start"] = datetime.now(timezone.utc).isoformat()
     supabase.table("users").update(update_data).eq("username", user["username"]).execute()
 
-    return {"blocks": blocks}
+    return {"blocks": blocks, "diagrams": diagrams}
 
 
 @router.get("/history")

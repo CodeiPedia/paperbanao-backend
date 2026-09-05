@@ -16,3 +16,4 @@ weasyprint==69.0
 razorpay==1.4.2
 setuptools<81
 markdown==3.7
+matplotlib==3.9.2

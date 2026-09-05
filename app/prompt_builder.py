@@ -33,10 +33,6 @@ def build_question_prompt(req: GeneratePaperRequest) -> str:
         "even ones from the same subject that seem related or commonly paired. If you are unsure whether a "
         "concept belongs to the listed topics/chapters, do not use it. Every question must be traceable to "
         "one of the specific topics/chapters named above.\n\n"
-        "COVERAGE: If multiple topics/chapters are listed above, spread the questions as evenly as possible "
-        "across ALL of them — do not concentrate most questions on just one or two chapters while barely "
-        "touching the others. Every listed chapter should get a fair share of the questions relative to the "
-        "total count.\n\n"
         + "\n\n".join(reqs)
         + answer_key_instr
         + f"\n\n{lang_instr}\n\n"
