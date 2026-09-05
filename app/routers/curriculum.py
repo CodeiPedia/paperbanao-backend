@@ -3,6 +3,7 @@
 from app.database import supabase
 from app.security import get_current_user
 from app.schemas import ChaptersSaveRequest
+from app.exam_weightage import get_chapter_weightage
 
 router = APIRouter(prefix="/curriculum", tags=["curriculum"])
 
@@ -26,6 +27,17 @@ def get_chapters(class_name: str, subject_name: str):
     if res.data:
         return [c.strip() for c in res.data[0]["chapters"].split(",") if c.strip()]
     return []
+
+
+@router.get("/weightage")
+def get_weightage(class_name: str, subject_name: str):
+    """Returns exam-pattern weightage info for this class/subject's
+    chapters, where we have researched data available (currently just
+    BSEB Class 10 Mathematics — see app/exam_weightage.py). Returns an
+    empty object for any class/subject we haven't researched yet, so the
+    frontend can just skip showing weightage badges in that case."""
+    chapters = get_chapters(class_name, subject_name)
+    return get_chapter_weightage(class_name, subject_name, chapters)
 
 
 @router.post("/chapters")
