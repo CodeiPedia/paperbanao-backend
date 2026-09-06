@@ -16,7 +16,8 @@ def get_defaults(user: dict = Depends(get_current_user)):
         "default_inst_name, default_inst_address, default_inst_contact, "
         "default_teacher_name, default_paper_language, default_board_format, "
         "default_custom_instructions, default_reading_time, "
-        "default_logo_base64, default_logo_mimetype"
+        "default_logo_base64, default_logo_mimetype, "
+        "default_logo_placement, default_heading_font, default_heading_size"
     ).eq("username", user["username"]).execute()
     return res.data[0] if res.data else {}
 
@@ -31,6 +32,9 @@ async def save_defaults(
     board_format: str = Form("Standard"),
     custom_instructions: str = Form(""),
     reading_time: str = Form(""),
+    logo_placement: str = Form("left"),  # "left" | "right" | "above"
+    heading_font: str = Form("serif"),   # "serif" | "sans" | "bold-display"
+    heading_size: str = Form("medium"),  # "small" | "medium" | "large"
     logo: UploadFile = File(None),
     user: dict = Depends(get_current_user),
 ):
@@ -43,6 +47,9 @@ async def save_defaults(
         "default_board_format": board_format,
         "default_custom_instructions": custom_instructions,
         "default_reading_time": reading_time,
+        "default_logo_placement": logo_placement,
+        "default_heading_font": heading_font,
+        "default_heading_size": heading_size,
     }
     if logo is not None:
         logo_bytes = await logo.read()
